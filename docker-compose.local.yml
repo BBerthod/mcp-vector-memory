@@ -1,0 +1,6 @@
+# Local override: publishes the server on http://localhost:3100.
+# Usage: docker compose -f docker-compose.yml -f docker-compose.local.yml up -d
+services:
+  mcp-vector:
+    ports:
+      - "3100:3100"

@@ -1,49 +1,114 @@
-# mcp-vector-memory
+<p align="center">
+  <img src="docs/assets/banner.svg" alt="mcp-vector-memory: shared, persistent memory for AI coding agents" width="100%">
+</p>
 
-A self-hosted MCP server that gives AI coding agents a shared, persistent memory: it indexes your code and documentation into a vector database, and lets every agent search it and store what it learns.
+<p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-A78BFA?style=flat-square" alt="License MIT"></a>
+  <img src="https://img.shields.io/badge/MCP-Streamable%20HTTP-F0ABFC?style=flat-square" alt="MCP Streamable HTTP">
+  <img src="https://img.shields.io/badge/TypeScript-5-3178C6?style=flat-square&logo=typescript&logoColor=white" alt="TypeScript">
+  <img src="https://img.shields.io/badge/Qdrant-1.13-DC244C?style=flat-square" alt="Qdrant">
+  <img src="https://img.shields.io/badge/embeddings-local%20(Ollama)-34D399?style=flat-square" alt="Local embeddings">
+</p>
 
-Built for teams (or solo developers) running several agents across several projects: Claude Code, Codex or any MCP client connects over Streamable HTTP and works on the same knowledge base.
+---
+
+AI coding agents forget everything between sessions, and two agents working on the same project never share what they learned. **mcp-vector-memory** is a self-hosted [Model Context Protocol](https://modelcontextprotocol.io) server that fixes both: it indexes your code and documentation into a vector database, and gives every agent tools to search it and to store decisions, conventions and lessons learned.
+
+Claude Code, Codex or any MCP client connects to the same server and works on the same knowledge base. Embeddings are computed locally with Ollama: no code leaves your infrastructure.
+
+## How it works
+
+```mermaid
+flowchart LR
+    A1[Claude Code] -->|MCP /mcp| S
+    A2[Codex] -->|MCP /mcp| S
+    A3[Any MCP client] -->|MCP /mcp| S
+    G[Git push] -->|webhook| S
+    subgraph Server [mcp-vector-memory]
+        S[Auth · rate limit] --> C[Chunking<br/>tree-sitter AST · text]
+        C --> E[Embeddings<br/>Ollama, local]
+        S --> R[Hybrid search<br/>dense + sparse]
+    end
+    E --> Q[(Qdrant<br/>code · docs · memory)]
+    R --> Q
+```
 
 ## Features
 
-- **Code-aware indexing**: AST-based chunking with tree-sitter, so functions and classes stay whole; plain text chunking for docs
-- **Hybrid search**: dense embeddings plus a sparse keyword encoder, with per-project relevance thresholds for code, docs and memories
-- **Agent memory**: `remember`, `update_memory`, `forget` tools so agents can store decisions and lessons, not just read code
-- **Local embeddings**: Ollama (default `qwen3-embedding`), no data sent to a third-party API
-- **Multi-project, multi-token**: each bearer token is scoped to a list of projects
-- **Auto re-indexing**: optional webhook per repository, triggered on push
-- **Hardened**: rate limiting, request size limits, security headers
+- **Code-aware indexing**: tree-sitter splits source files along functions and classes, so a result is a whole unit, not half a function
+- **Hybrid search**: dense embeddings plus a sparse keyword encoder, with separate relevance thresholds for code, docs and memories
+- **Agent memory**: agents store what they learn; duplicates are detected, updates use optimistic locking, deletions are soft with 30-day retention
+- **Local embeddings**: `qwen3-embedding` through Ollama by default, with distinct instructions for code and text
+- **Multi-project, multi-token**: each bearer token only sees the projects it is scoped to
+- **Auto re-indexing**: one webhook per repository, triggered on push
+- **Hardened**: per-token rate limiting, request size limits, security headers
 
 ## MCP tools
 
-| Tool | Purpose |
+| Tool | What it does |
 | --- | --- |
-| `search` | Semantic + keyword search across code, docs and memories |
+| `search` | Semantic and keyword search across code, docs and memories |
 | `index_file` | Index or re-index a file |
-| `remember` | Store a memory (decision, convention, lesson learned) |
-| `update_memory` | Update an existing memory |
-| `forget` | Delete a memory |
-| `stats` | Collection statistics per project |
-
-## Stack
-
-TypeScript · Node.js 22 · MCP SDK · Qdrant · Ollama · tree-sitter · Docker Compose
+| `remember` | Store a memory (decision, convention, lesson learned), with duplicate detection |
+| `update_memory` | Update a memory, with optimistic locking |
+| `forget` | Soft-delete a memory (30-day retention) |
+| `stats` | Health and metrics of the vector store |
 
 ## Quick start
 
 ```bash
-cp .env.example .env                 # set QDRANT_API_KEY
-# edit config/projects.yml: your projects and a random token
-docker compose up -d                 # Qdrant + Ollama + the MCP server
+git clone https://github.com/BBerthod/mcp-vector-memory.git
+cd mcp-vector-memory
+cp .env.example .env                       # set QDRANT_API_KEY (openssl rand -hex 32)
+# declare your projects and a random token in config/projects.yml
+
+docker network create dokploy-network      # the compose file expects this external network
+docker compose -f docker-compose.yml -f docker-compose.local.yml up -d
 ```
 
-Then add the server to your MCP client, for example in Claude Code:
+The first start pulls the embedding model (about 5 GB). The server then listens on `http://localhost:3100`.
+
+Connect a client, for example Claude Code:
 
 ```bash
-claude mcp add --transport http vector-memory https://your-host/mcp \
+claude mcp add --transport http vector-memory http://localhost:3100/mcp \
   --header "Authorization: Bearer <your-token>"
 ```
 
+## Configuration
+
+```yaml
+# config/projects.yml
+projects:
+  my-app:
+    repo: "github.com/your-user/my-app"
+    server_repo_path: "/var/repos/my-app"
+    languages: [php, javascript, vue]
+    exclude: [vendor, node_modules, storage]
+    webhook_secret: "${MY_APP_WEBHOOK_SECRET}"
+
+auth:
+  tokens:
+    <random-token>:
+      name: "me"
+      projects: ["my-app"]
+```
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `EMBED_MODEL_CODE` / `EMBED_MODEL_TEXT` | `qwen3-embedding:8b` | Embedding models |
+| `VECTOR_SIZE` | `4096` | Embedding dimensions |
+| `RATE_LIMIT_PER_HOUR` | `1000` | Requests per token per hour |
+| `RATE_LIMIT_BURST` | `50` | Burst allowance |
+
+## Stack
+
+TypeScript · Node.js 22 · MCP SDK · Express · Qdrant · Ollama · tree-sitter · Docker Compose
+
+## About this repository
+
+This server runs in production behind my own agents. The repository is a weekly snapshot of the private one it is developed in. Issues and ideas are welcome.
+
 ## License
 
-MIT
+[MIT](LICENSE). Built by [Billy Berthod](https://radiank.com).
