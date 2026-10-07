@@ -19,18 +19,16 @@ Claude Code, Codex or any MCP client connects to the same server and works on th
 ## How it works
 
 ```mermaid
-flowchart LR
-    A1[Claude Code] -->|MCP /mcp| S
-    A2[Codex] -->|MCP /mcp| S
-    A3[Any MCP client] -->|MCP /mcp| S
-    G[Git push] -->|webhook| S
-    subgraph Server [mcp-vector-memory]
-        S[Auth · rate limit] --> C[Chunking<br/>tree-sitter AST · text]
-        C --> E[Embeddings<br/>Ollama, local]
-        S --> R[Hybrid search<br/>dense + sparse]
+flowchart TB
+    subgraph Clients[" "]
+        direction LR
+        A1[Claude Code] ~~~ A2[Codex] ~~~ A3[Any MCP client] ~~~ G[Git push webhook]
     end
+    Clients -->|MCP over HTTP · bearer token| S[Auth · rate limit]
+    S --> C[Chunking<br/>tree-sitter AST · text] --> E[Local embeddings<br/>Ollama]
+    S --> R[Hybrid search<br/>dense + sparse]
     E --> Q[(Qdrant<br/>code · docs · memory)]
-    R --> Q
+    R <--> Q
 ```
 
 ## Features
