@@ -1,0 +1,36 @@
+{
+  "name": "mcp-vector-server",
+  "version": "0.1.0",
+  "description": "MCP vector memory server — shared knowledge base for Claude Code developers",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsx watch src/index.ts",
+    "lint": "eslint src/",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.0",
+    "@qdrant/js-client-rest": "^1.14.0",
+    "express": "^4.21.0",
+    "js-yaml": "^4.1.0",
+    "node-cron": "^3.0.0",
+    "tree-sitter-wasms": "^0.1.13",
+    "uuid": "^11.1.0",
+    "web-tree-sitter": "^0.24.7",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.0",
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^22.0.0",
+    "@types/uuid": "^10.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  }
+}

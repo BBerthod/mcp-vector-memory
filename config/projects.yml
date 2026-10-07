@@ -1,0 +1,19 @@
+# Example configuration. Copy this file and declare your own projects.
+projects:
+  my-app:
+    repo: "github.com/your-user/my-app"
+    server_repo_path: "/var/repos/my-app"
+    languages: [php, javascript, vue]
+    exclude: [vendor, node_modules, storage, public/build, bootstrap/cache]
+    webhook_secret: "${MY_APP_WEBHOOK_SECRET}"
+    thresholds:
+      code: 0.45
+      docs: 0.40
+      memory: 0.50
+
+auth:
+  tokens:
+    # Key = a random token (openssl rand -hex 32). Never commit a real one.
+    replace-with-a-random-token:
+      name: "me"
+      projects: ["my-app"]
