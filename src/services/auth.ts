@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
-import { config, getProjectsForToken, getTokenInfo } from '../config.js';
+import { config, getProjectsForToken, getTokenInfo, tokenStore } from '../config.js';
+import type { TokenStore } from './token-store.js';
 
 export interface AuthContext {
   token: string;
@@ -153,19 +154,15 @@ export function requireAuthContext(req: Request): AuthContext {
   return context;
 }
 
-export function requireAdminToken(token: string): void {
-  // Check if token has admin privileges (access to all projects or special admin flag)
-  const tokenInfo = getTokenInfo(token);
-  
+export function requireAdminToken(token: string, store: TokenStore = tokenStore): void {
+  const tokenInfo = store.getTokenInfo(token);
+
   if (!tokenInfo) {
     throw new Error('Invalid token');
   }
 
-  // For now, we consider a token admin if it has '*' in projects or 'admin' in name
-  const isAdmin = tokenInfo.projects.includes('*') || 
-                  tokenInfo.name.toLowerCase().includes('admin');
-
-  if (!isAdmin) {
+  // Admin only through an explicit `role: admin` on the token entry.
+  if (tokenInfo.role !== 'admin') {
     throw new Error('Admin privileges required');
   }
 }

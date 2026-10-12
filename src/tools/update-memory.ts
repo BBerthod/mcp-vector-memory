@@ -5,8 +5,9 @@ import type { OllamaService } from '../services/ollama.js';
 import type { RateLimiter } from '../services/security.js';
 import { containsSecrets } from '../services/security.js';
 import type { AuthContext } from '../services/auth.js';
-import { encodeSparse } from '../services/sparse-encoder.js';
+import { encodeSparse, SPARSE_VERSION } from '../services/sparse-encoder.js';
 import { config } from '../config.js';
+import { VALID_TYPES, computeContentHash } from './remember.js';
 
 export function registerUpdateMemoryTool(
   server: McpServer,
@@ -21,10 +22,10 @@ export function registerUpdateMemoryTool(
     {
       id: z.string().describe("ID de l'entrée à modifier"),
       version: z.number().describe('Version lue — rejeté si changée entre-temps'),
-      summary: z.string().optional().describe('Nouveau résumé'),
-      context: z.string().optional().describe('Nouveau contexte'),
-      tags: z.array(z.string()).optional().describe('Nouveaux tags'),
-      type: z.string().optional().describe('Nouveau type'),
+      summary: z.string().max(2000).optional().describe('Nouveau résumé'),
+      context: z.string().max(20000).optional().describe('Nouveau contexte'),
+      tags: z.array(z.string().max(64)).max(20).optional().describe('Nouveaux tags'),
+      type: z.enum(VALID_TYPES).optional().describe('Nouveau type'),
     },
     async (args) => {
       console.log('[update-memory] Updating:', args.id, 'version:', args.version);
@@ -87,18 +88,22 @@ export function registerUpdateMemoryTool(
         : newSummary;
       const vector = await ollama.embed(textForEmbedding, 'text');
 
-      const updatedPayload = {
-        ...point.payload,
-        summary: newSummary,
-        context: args.context ?? point.payload.context,
-        tags: args.tags ?? point.payload.tags,
-        type: args.type ?? point.payload.type,
+      // Write only what changed: rewriting the whole payload read above would
+      // undo a forget (deleted_at) that landed since the read.
+      const changes: Record<string, unknown> = {
+        content_hash: computeContentHash(newSummary),
+        sparse_version: SPARSE_VERSION,
         version: newVersion,
         updated_at: new Date().toISOString(),
       };
+      if (args.summary !== undefined) changes.summary = newSummary;
+      if (args.context !== undefined) changes.context = args.context;
+      if (args.tags !== undefined) changes.tags = args.tags;
+      if (args.type !== undefined) changes.type = args.type;
 
       const sparseVector = encodeSparse(newSummary);
-      await qdrant.upsertHybrid('memory', [{ id: args.id, denseVector: vector, sparseVector, payload: updatedPayload }]);
+      await qdrant.updateVectors('memory', args.id, { denseVector: vector, sparseVector });
+      await qdrant.setPayload('memory', args.id, changes);
 
       console.log('[update-memory] Updated:', args.id, 'version:', newVersion);
       return {

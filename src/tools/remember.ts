@@ -6,10 +6,14 @@ import type { OllamaService } from '../services/ollama.js';
 import type { RateLimiter } from '../services/security.js';
 import { containsSecrets } from '../services/security.js';
 import type { AuthContext } from '../services/auth.js';
-import { encodeSparse } from '../services/sparse-encoder.js';
+import { encodeSparse, SPARSE_VERSION } from '../services/sparse-encoder.js';
 import { config } from '../config.js';
 
-const VALID_TYPES = ['decision', 'pattern', 'solution', 'convention', 'issue', 'session_summary'] as const;
+export const VALID_TYPES = ['decision', 'pattern', 'solution', 'convention', 'issue', 'session_summary'] as const;
+
+export function computeContentHash(summary: string): string {
+  return crypto.createHash('sha256').update(summary.toLowerCase().trim()).digest('hex');
+}
 
 export function registerRememberTool(
   server: McpServer,
@@ -24,9 +28,9 @@ export function registerRememberTool(
     {
       project: z.string().describe('Nom du projet ou "global"'),
       type: z.enum(VALID_TYPES).describe('Type: decision, pattern, solution, convention, issue, session_summary'),
-      summary: z.string().describe('Description claire, commence par un verbe'),
-      context: z.string().optional().describe('Détails supplémentaires, raisonnement'),
-      tags: z.array(z.string()).min(2).describe('Minimum 2 tags'),
+      summary: z.string().max(2000).describe('Description claire, commence par un verbe'),
+      context: z.string().max(20000).optional().describe('Détails supplémentaires, raisonnement'),
+      tags: z.array(z.string().max(64)).min(2).max(20).describe('Entre 2 et 20 tags (64 caractères max chacun)'),
     },
     async (args) => {
       console.log('[remember] project:', args.project, 'type:', args.type);
@@ -48,14 +52,14 @@ export function registerRememberTool(
       }
 
       // Duplicate detection
-      const normalizedSummary = args.summary.toLowerCase().trim();
-      const contentHash = crypto.createHash('sha256').update(normalizedSummary).digest('hex');
+      const contentHash = computeContentHash(args.summary);
 
       // Check for hash-based exact duplicate within 3 months
       const hashFilter = {
         must: [
           { key: 'project', match: { value: args.project } },
           { key: 'content_hash', match: { value: contentHash } },
+          { is_empty: { key: 'deleted_at' } },
         ],
       };
 
@@ -85,6 +89,7 @@ export function registerRememberTool(
         must: [
           { key: 'project', match: { value: args.project } },
           { key: 'type', match: { value: args.type } },
+          { is_empty: { key: 'deleted_at' } },
         ],
       };
 
@@ -124,6 +129,7 @@ export function registerRememberTool(
           context: args.context ?? '',
           tags: args.tags,
           content_hash: contentHash,
+          sparse_version: SPARSE_VERSION,
           author: authContext.name,
           created_at: now,
           updated_at: now,

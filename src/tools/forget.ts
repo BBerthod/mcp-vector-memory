@@ -14,7 +14,7 @@ export function registerForgetTool(
 ): void {
   server.tool(
     'forget',
-    'Supprimer une entrée mémoire (soft delete, rétention 30 jours). Par ID direct ou par recherche.',
+    'Supprimer une entrée mémoire (suppression douce ; purge définitive si PURGE_DELETED_AFTER_DAYS est défini). Par ID direct ou par recherche.',
     {
       id: z.string().optional().describe('ID direct de la mémoire à supprimer'),
       query: z.string().optional().describe('Recherche sémantique (retourne les candidats si >1)'),
@@ -54,17 +54,11 @@ export function registerForgetTool(
           };
         }
 
-        // Soft delete: re-embed to preserve vector, update payload
-        const vector = await ollama.embed(point.payload.summary as string, 'text');
-        await qdrant.upsert('memory', [{
-          id: args.id,
-          vector,
-          payload: {
-            ...point.payload,
-            deleted_at: new Date().toISOString(),
-            deletion_reason: args.reason ?? null,
-          },
-        }]);
+        // Soft delete: payload only, vectors (dense and bm25) stay untouched
+        await qdrant.setPayload('memory', args.id, {
+          deleted_at: new Date().toISOString(),
+          deletion_reason: args.reason ?? null,
+        });
 
         console.log('[forget] Soft deleted:', args.id);
         return {
@@ -125,16 +119,10 @@ export function registerForgetTool(
 
       // Exactly 1 match — soft delete
       const target = active[0];
-      const targetVector = await ollama.embed(target.payload.summary as string, 'text');
-      await qdrant.upsert('memory', [{
-        id: target.id,
-        vector: targetVector,
-        payload: {
-          ...target.payload,
-          deleted_at: new Date().toISOString(),
-          deletion_reason: args.reason ?? null,
-        },
-      }]);
+      await qdrant.setPayload('memory', target.id, {
+        deleted_at: new Date().toISOString(),
+        deletion_reason: args.reason ?? null,
+      });
 
       console.log('[forget] Soft deleted via query:', target.id);
       return {

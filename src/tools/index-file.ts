@@ -8,7 +8,7 @@ import { containsSecrets } from '../services/security.js';
 import type { AuthContext } from '../services/auth.js';
 import { chunkByAst, isAstSupported, type AstChunk } from '../services/ast-chunker.js';
 import { chunkByFormat } from '../services/text-chunker.js';
-import { encodeSparse } from '../services/sparse-encoder.js';
+import { encodeSparse, SPARSE_VERSION } from '../services/sparse-encoder.js';
 import { config } from '../config.js';
 
 const MAX_FILE_SIZE = 100 * 1024; // 100KB
@@ -210,6 +210,7 @@ async function processIndexing(
       line_start: chunk.startLine,
       line_end: chunk.endLine,
       content_hash: contentHash,
+      sparse_version: SPARSE_VERSION,
       last_indexed: new Date().toISOString(),
       embedding_model: config.embedModelCode,
       embedding_dims: config.embedDims,

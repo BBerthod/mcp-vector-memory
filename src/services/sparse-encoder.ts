@@ -10,26 +10,49 @@ export interface SparseVector {
 
 const BM25_K1 = 1.2;
 
+/** Payload marker written next to every sparse vector: 2 = accent folding, stopwords, IDF modifier. */
+export const SPARSE_VERSION = 2;
+
+/** Common French and English function words (accent-folded, lowercase). */
+const STOPWORDS = new Set([
+  // French
+  'le', 'la', 'les', 'un', 'une', 'des', 'du', 'de', 'au', 'aux', 'et', 'ou', 'mais', 'donc', 'car',
+  'ni', 'que', 'qui', 'quoi', 'dont', 'ce', 'cet', 'cette', 'ces', 'ca', 'je', 'tu', 'il', 'elle',
+  'on', 'nous', 'vous', 'ils', 'elles', 'me', 'te', 'se', 'mon', 'ma', 'mes', 'ton', 'ta', 'tes',
+  'son', 'sa', 'ses', 'leur', 'leurs', 'dans', 'sur', 'sous', 'avec', 'sans', 'pour', 'par', 'en',
+  'est', 'sont', 'etre', 'avoir', 'pas', 'ne', 'plus', 'tres', 'comme', 'si', 'ai', 'ont',
+  // English
+  'the', 'an', 'of', 'to', 'is', 'are', 'was', 'were', 'be', 'been', 'it', 'its', 'and', 'but',
+  'on', 'at', 'by', 'with', 'from', 'as', 'that', 'which', 'who', 'we', 'you', 'they', 'he', 'she',
+  'my', 'your', 'our', 'their', 'do', 'does', 'did', 'has', 'have', 'had', 'will', 'would', 'can',
+  'could', 'should', 'so', 'than', 'then', 'there', 'these', 'those',
+]);
+
+/** Lowercase-preserving accent folding: NFD then drop combining marks. */
+function foldAccents(text: string): string {
+  return text.normalize('NFD').replace(/\p{M}+/gu, '');
+}
+
 /**
- * Split text into tokens: split camelCase/snake_case, lowercase,
- * keep original + parts, filter < 2 chars.
+ * Split text into tokens: fold accents, split camelCase/snake_case, lowercase,
+ * keep original + parts, drop stopwords, filter < 2 chars.
  */
 export function tokenize(text: string): string[] {
   const tokens: string[] = [];
   // Split on whitespace and punctuation
-  const words = text.split(/[\s,;:{}()\[\]<>=!+\-*/&|^~?@#$%\\`'"]+/);
+  const words = foldAccents(text).split(/[\s,;:{}()\[\]<>=!+\-*/&|^~?@#$%\\`'"\u2018\u2019\u02bc]+/);
 
   for (const word of words) {
     if (word.length < 2) continue;
     const lower = word.toLowerCase();
-    tokens.push(lower);
+    if (!STOPWORDS.has(lower)) tokens.push(lower);
 
     // Split camelCase: "AuthService" → ["auth", "service"]
     const camelParts = word.replace(/([a-z])([A-Z])/g, '$1_$2').split('_');
     if (camelParts.length > 1) {
       for (const part of camelParts) {
         const p = part.toLowerCase();
-        if (p.length >= 2 && p !== lower) {
+        if (p.length >= 2 && p !== lower && !STOPWORDS.has(p)) {
           tokens.push(p);
         }
       }

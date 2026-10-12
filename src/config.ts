@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import yaml from 'js-yaml';
 import { fileURLToPath } from 'url';
+import { createTokenStore } from './services/token-store.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -19,6 +20,7 @@ export interface ProjectConfig {
 export interface AuthToken {
   name: string;
   projects: string[];
+  role?: 'admin';
 }
 
 export interface Config {
@@ -37,9 +39,11 @@ export interface Config {
   logLevel: string;
   rateLimitPerHour: number;
   rateLimitBurst: number;
+  rateLimitWritePerHour: number;
+  rateLimitWriteBurst: number;
 }
 
-interface RawConfig {
+export interface RawConfig {
   projects: Record<string, ProjectConfig>;
   auth: { tokens: Record<string, AuthToken> };
 }
@@ -63,18 +67,33 @@ function resolveSecretsInConfig(config: RawConfig): void {
   }
 }
 
-function loadConfig(): Config {
-  const configPath = path.resolve(__dirname, '../config/projects.yml');
-  
-  let rawConfig: RawConfig;
-  
+const DEFAULT_CONFIG_PATH = path.resolve(__dirname, '../config/projects.yml');
+
+export function readRawConfig(configPath: string = DEFAULT_CONFIG_PATH): RawConfig {
+  let fileContents: string;
   try {
-    const fileContents = fs.readFileSync(configPath, 'utf8');
-    rawConfig = yaml.load(fileContents) as RawConfig;
+    fileContents = fs.readFileSync(configPath, 'utf8');
   } catch (error) {
     console.error(`[config] Failed to load config from ${configPath}:`, error);
     throw new Error(`Configuration load failed: ${error}`);
   }
+
+  try {
+    return yaml.load(fileContents) as RawConfig;
+  } catch (error) {
+    // A YAMLException message embeds a snippet of the faulty lines, which can
+    // contain a token: report only the reason and the position.
+    let detail = 'unreadable content';
+    if (error instanceof yaml.YAMLException) {
+      detail = `${error.reason} (line ${error.mark.line + 1}, column ${error.mark.column + 1})`;
+    }
+    console.error(`[config] Failed to parse config ${configPath}: ${detail}`);
+    throw new Error(`Configuration parse failed: ${detail}`);
+  }
+}
+
+function loadConfig(): Config {
+  const rawConfig = readRawConfig();
 
   if (!rawConfig.projects) {
     rawConfig.projects = {};
@@ -104,6 +123,8 @@ function loadConfig(): Config {
     logLevel: process.env.LOG_LEVEL || 'info',
     rateLimitPerHour: parseInt(process.env.RATE_LIMIT_PER_HOUR || '1000', 10),
     rateLimitBurst: parseInt(process.env.RATE_LIMIT_BURST || '50', 10),
+    rateLimitWritePerHour: parseInt(process.env.RATE_LIMIT_WRITE_PER_HOUR || '120', 10),
+    rateLimitWriteBurst: parseInt(process.env.RATE_LIMIT_WRITE_BURST || '10', 10),
   };
 
   console.log(`[config] Loaded ${Object.keys(config.projects).length} projects`);
@@ -114,16 +135,15 @@ function loadConfig(): Config {
 
 export const config: Config = loadConfig();
 
+// Built at load time: a malformed auth.tokens entry stops the server at startup.
+export const tokenStore = createTokenStore(config.auth.tokens);
+
 export function getProjectsForToken(token: string): string[] {
-  const tokenInfo = config.auth.tokens[token];
-  if (!tokenInfo) {
-    return [];
-  }
-  return tokenInfo.projects;
+  return tokenStore.getProjectsForToken(token);
 }
 
 export function getTokenInfo(token: string): AuthToken | null {
-  return config.auth.tokens[token] || null;
+  return tokenStore.getTokenInfo(token);
 }
 
 export function getDefaultThresholds(collection: string): number {

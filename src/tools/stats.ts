@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { QdrantService } from '../services/qdrant.js';
-import type { AuthContext } from '../services/auth.js';
+import { buildAclFilter, type AuthContext } from '../services/auth.js';
 
 export function registerStatsTool(
   server: McpServer,
@@ -17,13 +17,23 @@ export function registerStatsTool(
     async (args) => {
       console.log('[stats] Fetching stats');
 
+      let aclFilter: Record<string, unknown>;
+      try {
+        aclFilter = buildAclFilter(authContext, args.project);
+      } catch (error) {
+        return {
+          content: [{ type: 'text' as const, text: JSON.stringify({ error: error instanceof Error ? error.message : 'Access denied' }) }],
+          isError: true,
+        };
+      }
+
       const collections = ['code', 'docs', 'memory'] as const;
       const collectionStats: Record<string, { count: number; status: string }> = {};
 
       for (const col of collections) {
         try {
-          const info = await qdrant.getCollectionInfo(col);
-          collectionStats[col] = { count: info.count, status: 'ok' };
+          const count = await qdrant.countByFilter(col, aclFilter);
+          collectionStats[col] = { count, status: 'ok' };
         } catch {
           collectionStats[col] = { count: 0, status: 'error' };
         }

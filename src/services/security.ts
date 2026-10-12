@@ -52,6 +52,44 @@ const SECRET_PATTERNS: Array<{
     pattern: /sk-[A-Za-z0-9]{48}/g,
     description: 'OpenAI-style key',
   },
+  // Anthropic and recent OpenAI keys (hyphens and underscores allowed)
+  {
+    pattern: /\bsk-ant-[A-Za-z0-9_-]{20,}/g,
+    description: 'Anthropic API key',
+  },
+  {
+    pattern: /\bsk-(?:proj|svcacct|admin)-[A-Za-z0-9_-]{20,}/g,
+    description: 'OpenAI project, service account or admin key',
+  },
+  // GitHub fine-grained PAT, GitLab PAT
+  {
+    pattern: /\bgithub_pat_[A-Za-z0-9_]{22,}/g,
+    description: 'GitHub fine-grained PAT',
+  },
+  {
+    pattern: /\bglpat-[A-Za-z0-9_-]{20,}/g,
+    description: 'GitLab PAT',
+  },
+  // npm access token
+  {
+    pattern: /\bnpm_[A-Za-z0-9]{36}\b/g,
+    description: 'npm token',
+  },
+  // Vikunja / ntfy API tokens
+  {
+    pattern: /\btk_[A-Za-z0-9]{24,}/g,
+    description: 'Vikunja or ntfy token',
+  },
+  // Hugging Face tokens
+  {
+    pattern: /\bhf_[A-Za-z0-9]{30,}/g,
+    description: 'Hugging Face token',
+  },
+  // Telegram bot tokens (also inside https://api.telegram.org/bot<token>/...)
+  {
+    pattern: /\b(?:bot)?\d{8,10}:[A-Za-z0-9_-]{35}(?![A-Za-z0-9_-])/g,
+    description: 'Telegram bot token',
+  },
   // AWS keys
   {
     pattern: /AKIA[0-9A-Z]{16}/g,
@@ -71,6 +109,14 @@ const SECRET_PATTERNS: Array<{
     pattern: /xox[baprs]-[0-9]{10,13}-[0-9]{10,13}-[a-zA-Z0-9]{24}/g,
     description: 'Slack token',
   },
+  {
+    pattern: /\bxox[e]-[A-Za-z0-9-]{20,}/g,
+    description: 'Slack configuration token',
+  },
+  {
+    pattern: /\bxapp-[A-Za-z0-9-]{20,}/g,
+    description: 'Slack app-level token',
+  },
   // Stripe keys
   {
     pattern: /sk_live_[0-9a-zA-Z]{24}/g,
@@ -82,7 +128,8 @@ const SECRET_PATTERNS: Array<{
   },
   // JWT tokens
   {
-    pattern: /eyJ[A-Za-z0-9_-]*\.eyJ[A-Za-z0-9_-]*\.[A-Za-z0-9_-]*/g,
+    // Anchored on a non-token character and bounded: an unanchored unbounded form is quadratic on 'eyJeyJ...'.
+    pattern: /(?<![A-Za-z0-9_-])eyJ[A-Za-z0-9_-]{0,4096}\.eyJ[A-Za-z0-9_-]{0,4096}\.[A-Za-z0-9_-]{0,4096}/g,
     description: 'JWT token',
   },
   // Database connection strings

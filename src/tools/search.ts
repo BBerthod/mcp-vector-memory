@@ -6,7 +6,7 @@ import type { QdrantService, SearchResult } from '../services/qdrant.js';
 import type { OllamaService } from '../services/ollama.js';
 import { redactSecrets } from '../services/security.js';
 import { encodeSparseQuery } from '../services/sparse-encoder.js';
-import { config, getDefaultThresholds } from '../config.js';
+import { config, getProjectThreshold } from '../config.js';
 
 interface EnrichedResult extends SearchResult {
   collection: string;
@@ -108,10 +108,14 @@ export function registerSearchTool(
         must.push({ key: 'tags', match: { any: args.tags } });
       }
 
-      // Exclude soft-deleted entries (deleted_at must be null/absent)
+      // Exclude soft-deleted entries (deleted_at must be absent, null or empty)
       if (excludeExpired) {
-        must.push({ is_null: { key: 'deleted_at' } });
+        must.push({ is_empty: { key: 'deleted_at' } });
       }
+
+      // Dense similarity threshold: explicit argument, else the project's configured threshold, else none
+      const denseThresholdFor = (col: string): number | undefined =>
+        args.threshold ?? (args.project ? getProjectThreshold(args.project, col) : undefined);
 
       const allResults: EnrichedResult[] = [];
 
@@ -131,7 +135,11 @@ export function registerSearchTool(
             : args.query;
           const vector = await ollama.embed(codeQuery, 'code');
           for (const col of codeCols) {
-            const results = await qdrant.hybridSearch(col, vector, sparseQuery, { filter: baseFilter, limit });
+            const results = await qdrant.hybridSearch(col, vector, sparseQuery, {
+              filter: baseFilter,
+              limit,
+              denseThreshold: denseThresholdFor(col),
+            });
             allResults.push(...results.map(r => ({ ...r, collection: col })));
           }
         }
@@ -142,7 +150,11 @@ export function registerSearchTool(
             : args.query;
           const vector = await ollama.embed(textQuery, 'text');
           for (const col of textCols) {
-            const results = await qdrant.hybridSearch(col, vector, sparseQuery, { filter: baseFilter, limit });
+            const results = await qdrant.hybridSearch(col, vector, sparseQuery, {
+              filter: baseFilter,
+              limit,
+              denseThreshold: denseThresholdFor(col),
+            });
             allResults.push(...results.map(r => ({ ...r, collection: col })));
           }
         }
@@ -161,19 +173,7 @@ export function registerSearchTool(
         }
       }
 
-      // Apply composite scoring: 80% similarity + 20% recency
-      const now = Date.now();
-      const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
-      for (const r of allResults) {
-        const createdAt = r.payload.created_at || r.payload.last_indexed;
-        if (typeof createdAt === 'string') {
-          const ageMs = now - new Date(createdAt).getTime();
-          const recencyScore = Math.max(0, 1 - ageMs / THIRTY_DAYS_MS);
-          r.score = 0.80 * r.score + 0.20 * recencyScore;
-        }
-      }
-
-      // Sort by composite score descending, take top N
+      // Sort by fusion score descending, take top N
       allResults.sort((a, b) => b.score - a.score);
       const topResults = allResults.slice(0, limit);
 
