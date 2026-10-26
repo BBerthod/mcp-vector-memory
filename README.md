@@ -22,7 +22,7 @@ Claude Code, Codex or any MCP client connects to the same server and works on th
 flowchart TB
     subgraph Clients[" "]
         direction LR
-        A1[Claude Code] ~~~ A2[Codex] ~~~ A3[Any MCP client] ~~~ G[Git push webhook]
+        A1[Claude Code] ~~~ A2[Codex] ~~~ A3[Any MCP client]
     end
     Clients -->|MCP over HTTP · bearer token| S[Auth · rate limit]
     S --> C[Chunking<br/>tree-sitter AST · text] --> E[Local embeddings<br/>Ollama]
@@ -35,10 +35,10 @@ flowchart TB
 
 - **Code-aware indexing**: tree-sitter splits source files along functions and classes, so a result is a whole unit, not half a function
 - **Hybrid search**: dense embeddings plus a sparse keyword encoder, with separate relevance thresholds for code, docs and memories
-- **Agent memory**: agents store what they learn; duplicates are detected, updates use optimistic locking, deletions are soft with 30-day retention
+- **Agent memory**: agents store what they learn; duplicates are detected, updates use optimistic locking, deletions are soft (optional permanent purge with `PURGE_DELETED_AFTER_DAYS`)
 - **Local embeddings**: `qwen3-embedding` through Ollama by default, with distinct instructions for code and text
 - **Multi-project, multi-token**: each bearer token only sees the projects it is scoped to
-- **Auto re-indexing**: one webhook per repository, triggered on push
+- **Indexing by push from the client**: the agent sends file contents through `index_file` (the server never clones repositories)
 - **Hardened**: per-token rate limiting, request size limits, security headers
 
 ## MCP tools
@@ -49,7 +49,7 @@ flowchart TB
 | `index_file` | Index or re-index a file |
 | `remember` | Store a memory (decision, convention, lesson learned), with duplicate detection |
 | `update_memory` | Update a memory, with optimistic locking |
-| `forget` | Soft-delete a memory (30-day retention) |
+| `forget` | Soft-delete a memory (permanent purge only if `PURGE_DELETED_AFTER_DAYS` is set) |
 | `stats` | Health and metrics of the vector store |
 
 ## Quick start
@@ -83,7 +83,7 @@ projects:
     server_repo_path: "/var/repos/my-app"
     languages: [php, javascript, vue]
     exclude: [vendor, node_modules, storage]
-    webhook_secret: "${MY_APP_WEBHOOK_SECRET}"
+    thresholds: { code: 0.45, docs: 0.40, memory: 0.50 }   # optional
 
 auth:
   tokens:
@@ -92,12 +92,16 @@ auth:
       projects: ["my-app"]
 ```
 
-| Variable | Default | Purpose |
-| --- | --- | --- |
-| `EMBED_MODEL_CODE` / `EMBED_MODEL_TEXT` | `qwen3-embedding:8b` | Embedding models |
-| `VECTOR_SIZE` | `4096` | Embedding dimensions |
-| `RATE_LIMIT_PER_HOUR` | `1000` | Requests per token per hour |
-| `RATE_LIMIT_BURST` | `50` | Burst allowance |
+Only `thresholds` and `auth.tokens` are read by the server today; `repo`, `server_repo_path`, `languages` and `exclude` are accepted but unused.
+
+| Variable | `docker-compose.yml` | Code default | Purpose |
+| --- | --- | --- | --- |
+| `EMBED_MODEL_CODE` / `EMBED_MODEL_TEXT` | `qwen3-embedding:8b` | `sfr-embedding-mistral` | Embedding models |
+| `VECTOR_SIZE` | `4096` | `1024` | Embedding dimensions (must match the model) |
+| `RATE_LIMIT_PER_HOUR` / `RATE_LIMIT_BURST` | — | `1000` / `50` | Tool calls per token |
+| `RATE_LIMIT_WRITE_PER_HOUR` / `RATE_LIMIT_WRITE_BURST` | — | `120` / `10` | Write tool calls per token |
+| `PURGE_DELETED_AFTER_DAYS` | — | unset (no purge) | Permanently delete memories soft-deleted for longer |
+| `PORT` | — | `3100` | HTTP port |
 
 ## Stack
 
